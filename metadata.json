@@ -1,0 +1,6 @@
+{
+  "name": "AI Meeting Assistant",
+  "description": "An intelligent web app that transcribes audio meeting recordings, automatically summarizes minutes of the meeting (MOM), extracts actionable tasks, and assigns them to participants inside a comprehensive analytics dashboard.",
+  "requestFramePermissions": ["microphone", "display-capture"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

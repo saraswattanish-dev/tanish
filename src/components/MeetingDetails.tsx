@@ -11,7 +11,10 @@ import {
   Sparkles, 
   Printer, 
   Download,
-  Trash
+  Trash,
+  Loader2,
+  Copy,
+  Check
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { Meeting } from '../types';
@@ -24,8 +27,65 @@ interface MeetingDetailsProps {
 export default function MeetingDetails({ meeting, onDeleteMeeting }: MeetingDetailsProps) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
+  const [copiedMOM, setCopiedMOM] = useState(false);
+  const [copiedTranscript, setCopiedTranscript] = useState(false);
 
   if (!meeting) return null;
+
+  if (meeting.status === 'processing') {
+    return (
+      <div id="meeting-details-processing" className="bg-[#121214] rounded-3xl border border-white/5 p-8 shadow-sm flex flex-col items-center justify-center min-h-[400px] space-y-6 text-center animate-pulse">
+        <div className="relative">
+          <div className="absolute -inset-4 rounded-full bg-indigo-500/10 animate-ping"></div>
+          <div className="p-4 bg-indigo-500/10 rounded-full text-indigo-400 border border-indigo-500/20">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        </div>
+        <div className="max-w-md space-y-2">
+          <h3 className="font-sans font-bold text-white text-lg tracking-tight">Processing Dialogue Outcomes...</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Google Gemini model is currently transcribing the audio recording and synthesizing structured minutes of meeting (MOM), decisions, and action agreements.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/10 px-3 py-1 rounded-full font-mono font-bold tracking-wide uppercase">
+            Phase: Synthesizing Docs
+          </span>
+          <span className="text-[10px] bg-white/5 text-slate-400 border border-white/5 px-3 py-1 rounded-full font-mono font-bold tracking-wide uppercase">
+            Estimating ~15s
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const handleCopyMOM = () => {
+    try {
+      const pList = meeting.participants?.map(p => `- ${p.name} (${p.role || 'Attendee'})`).join('\n') || '';
+      const decList = meeting.summary?.decisions?.map((d, i) => `DECISION #${i + 1} (${d.who})\nDecision: ${d.decision}${d.context ? `\nContext: ${d.context}` : ''}`).join('\n\n') || '';
+      const tList = meeting.tasks?.map((t, i) => `${i + 1}. [${t.priority.toUpperCase()}] ${t.title} - Assigned to ${t.assignedTo} (Due: ${t.dueDate || 'N/A'})`).join('\n') || '';
+      const highlights = meeting.summary?.highlights?.map(h => `- ${h}`).join('\n') || '';
+
+      const text = `MINUTES OF MEETING (MOM)\n=========================\nTitle: ${meeting.title}\nDate: ${meeting.date}\nDuration: ${meeting.duration || 'N/A'}\nRef ID: #${meeting.id}\n\n1. PARTICIPANTS\n----------------\n${pList || 'No participants registered.'}\n\n2. CORE AGENDA & EXECUTIVE SUMMARY\n----------------------------------\n${meeting.summary?.agenda || 'No executive summary.'}\n\n3. KEY HIGHLIGHTS\n-----------------\n${highlights || 'No highlights recorded.'}\n\n4. FORMAL DECISIONS\n-------------------\n${decList || 'No decisions.'}\n\n5. ACTIONS & DELIVERABLES\n-------------------------\n${tList || 'No active tasks.'}`;
+
+      navigator.clipboard.writeText(text);
+      setCopiedMOM(true);
+      setTimeout(() => setCopiedMOM(false), 2000);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCopyTranscript = () => {
+    if (!meeting.transcript) return;
+    try {
+      navigator.clipboard.writeText(meeting.transcript);
+      setCopiedTranscript(true);
+      setTimeout(() => setCopiedTranscript(false), 2000);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const participantsColors = [
     'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20',
@@ -472,8 +532,58 @@ export default function MeetingDetails({ meeting, onDeleteMeeting }: MeetingDeta
     }
   };
 
+  const getReadableError = (errStr: string) => {
+    if (!errStr) return null;
+    const lower = errStr.toLowerCase();
+    
+    if (lower.includes("exhausted") || lower.includes("quota") || lower.includes("limit") || lower.includes("429")) {
+      return {
+        title: "Gemini API Daily Quota Exceeded (429)",
+        message: "The configured Gemini API key has completed its daily free tier quota (typically limited to 20 generation requests per day for gemini-3.5-flash). To restore immediate high-fidelity AI processing, you may configure a fresh Gemini API Key via your Settings drawer, or simply let the app handle task extractions via its offline rule-based heuristics.",
+        details: errStr
+      };
+    }
+    
+    return {
+      title: "Gemini API Key Service Alert",
+      message: "Our systems encountered an API key connection error or timeout. The localized text and meeting elements were generated using our browser's built-in rule execution fallback to protect your flow.",
+      details: errStr
+    };
+  };
+
+  const friendlyError = getReadableError(meeting.fallbackError || "");
+
   return (
     <div id="meeting-details-view" className="bg-[#121214] rounded-3xl border border-white/5 p-6 shadow-sm space-y-6 print:p-8 print:border-none print:shadow-none print:bg-white print:text-slate-950">
+      {meeting.isFallback && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex flex-col md:flex-row items-start gap-3 mt-1 text-amber-200 text-xs sm:text-slate-200 select-none print:hidden">
+          <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20 self-start shrink-0">
+            <Sparkles className="w-4 h-4 animate-pulse" />
+          </div>
+          <div className="space-y-1.5 w-full">
+            <strong className="text-amber-400 font-semibold block text-sm">
+              {friendlyError ? friendlyError.title : "Simulation / Standard Fallback Mode Active"}
+            </strong>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              {friendlyError 
+                ? friendlyError.message 
+                : "No custom Gemini API key was detected or a rate limit (429) was encountered on the server. The system programmatically generated transcription nodes and summary items using the browser's built-in local speech indicators and rule-based semantic extractors to align with your recording."}
+            </p>
+            
+            <p className="text-slate-400 text-[10px] leading-relaxed mt-1">
+              Note: To configure key credentials or update values, please see <code className="bg-white/5 px-1 py-0.5 rounded font-mono text-[10px] text-amber-300">GEMINI_API_KEY</code> within settings.
+            </p>
+
+            {friendlyError?.details && (
+              <div className="mt-2.5 p-3 bg-black/50 rounded-xl border border-white/5 font-mono text-[10px] text-amber-500 overflow-x-auto select-text break-all whitespace-pre-wrap">
+                <span className="text-amber-300 font-bold block mb-1 font-sans">Raw Server Diagnostics:</span>
+                {friendlyError.details}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header Info */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 border-b border-white/5 pb-5 print:border-slate-300">
         <div>
@@ -502,6 +612,15 @@ export default function MeetingDetails({ meeting, onDeleteMeeting }: MeetingDeta
 
         {/* Export / Print Triggers */}
         <div className="flex flex-wrap items-center gap-2 print:hidden shrink-0 self-end md:self-start">
+          <button
+            onClick={handleCopyMOM}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${copiedMOM ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/5'}`}
+            title="Copy completed MOM report to clipboard"
+          >
+            {copiedMOM ? <Check className="w-3.5 h-3.5 text-emerald-400 font-bold" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedMOM ? 'Copied MOM' : 'Copy MOM'}</span>
+          </button>
+
           <button
             onClick={handlePrintMOM}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-bold rounded-xl transition border border-white/5 cursor-pointer"
@@ -648,16 +767,27 @@ export default function MeetingDetails({ meeting, onDeleteMeeting }: MeetingDeta
 
           {showTranscript && (
             <div className="p-4 bg-[#0d0d0f] border-t border-white/5 space-y-3.5">
-              {/* Search transcript */}
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Query / Search keywords in dialogue..."
-                  value={filterQuery}
-                  onChange={(e) => setFilterQuery(e.target.value)}
-                  className="w-full pl-8 pr-3.5 py-1.5 bg-white/[0.02] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500/20 text-xs text-slate-100 placeholder-slate-600"
-                />
-                <span className="absolute left-3 top-2 text-slate-500 font-medium text-xs">🔍</span>
+              {/* Actions row: Search + Copy */}
+              <div className="flex gap-2 items-center">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Query / Search keywords in dialogue..."
+                    value={filterQuery}
+                    onChange={(e) => setFilterQuery(e.target.value)}
+                    className="w-full pl-8 pr-3.5 py-2 bg-white/[0.02] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500/20 text-xs text-slate-100 placeholder-slate-600"
+                  />
+                  <span className="absolute left-3 top-2.5 text-slate-500 font-medium text-xs">🔍</span>
+                </div>
+                
+                <button
+                  onClick={handleCopyTranscript}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition cursor-pointer border shrink-0 ${copiedTranscript ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'bg-[#16161a] hover:bg-white/5 text-slate-300 border-white/10'}`}
+                  title="Copy full transcript to clipboard"
+                >
+                  {copiedTranscript ? <Check className="w-3.5 h-3.5 text-emerald-400 font-bold" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{copiedTranscript ? 'Copied Transcript!' : 'Copy Transcript'}</span>
+                </button>
               </div>
 
               {/* Dialog Lines */}

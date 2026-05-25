@@ -245,6 +245,18 @@ function generateHeuristicMOM(transcript: string, proposedTitle?: string): any {
       tasks: [
         { title: "Update shared Figma typography styles and variable map", description: "Align hover status styling across screens.", assignedTo: participants[0].name, priority: "medium" as 'low' | 'medium' | 'high' }
       ]
+    },
+    environment: {
+      highlights: [
+        "Analyzed sustainability indices and compiled green milestone metrics.",
+        "Discussed regulatory compliance and community eco impact standards."
+      ],
+      decisions: [
+        { decision: "Establish a standard environmental parameter check for all branches", who: participants[0].name, context: "Strengthens eco conformity scores and corporate carbon footprint levels" }
+      ],
+      tasks: [
+        { title: "Establish carbon tracking dashboard integrations", description: "Audit compliance guidelines and green statistics.", assignedTo: participants[0].name, priority: "high" as 'low' | 'medium' | 'high' }
+      ]
     }
   };
 
@@ -254,9 +266,70 @@ function generateHeuristicMOM(transcript: string, proposedTitle?: string): any {
     selected = keywords.marketing;
   } else if (lowerT.includes("design") || lowerT.includes("contrast") || lowerT.includes("figma") || lowerT.includes("buttons") || lowerT.includes("style")) {
     selected = keywords.design;
+  } else if (lowerT.includes("environ") || lowerT.includes("climat") || lowerT.includes("eco") || lowerT.includes("green") || lowerT.includes("sustain") || lowerT.includes("conserv")) {
+    selected = keywords.environment;
   }
 
-  let agenda = "Review team progress and synchronize deliverables across active workspace branches.";
+  // Smart dynamic heuristics parser extracting topics and roles from user's live recorded dialogues
+  const extractedHighlights: string[] = [];
+  const extractedDecisions: { decision: string; who: string; context: string }[] = [];
+  const extractedTasks: { title: string; description: string; assignedTo: string; priority: 'low' | 'medium' | 'high' }[] = [];
+
+  const sentences = transcript
+    .split(/[.!?\n]/)
+    .map(s => s.trim())
+    .filter(s => s.length > 8);
+
+  sentences.forEach((sentence) => {
+    const lowerS = sentence.toLowerCase();
+    
+    // Clean speaker identifiers (e.g., "John: We should do x" -> "We should do x")
+    const cleanedText = sentence.replace(/^[^:]+:\s*/, "").trim();
+    if (cleanedText.length < 10) return;
+
+    // Detect speaker name
+    let speakerName = participants[0].name;
+    const matchSpeaker = sentence.match(/^([^:\n]+?)\s*:/);
+    if (matchSpeaker) {
+      const matchName = matchSpeaker[1].trim();
+      // Verify if match corresponds to the parsed participants
+      const found = participants.find(p => p.name.toLowerCase() === matchName.toLowerCase());
+      if (found) speakerName = found.name;
+    }
+
+    // Extract Decisions
+    if (lowerS.includes("decid") || lowerS.includes("agreed") || lowerS.includes("settled") || lowerS.includes("resolved") || lowerS.includes("approve")) {
+      if (extractedDecisions.length < 4) {
+        extractedDecisions.push({
+          decision: cleanedText,
+          who: speakerName,
+          context: "Synthesized direct from discussant statements."
+        });
+      }
+    } 
+    // Extract Tasks
+    else if (lowerS.includes("todo") || lowerS.includes("task") || lowerS.includes("should") || lowerS.includes("will handle") || lowerS.includes("will create") || lowerS.includes("will update") || lowerS.includes("will develop") || lowerS.includes("need to")) {
+      if (extractedTasks.length < 4) {
+        let priority: 'low' | 'medium' | 'high' = "medium";
+        if (lowerS.includes("urgent") || lowerS.includes("asap") || lowerS.includes("immediately") || lowerS.includes("critical") || lowerS.includes("high-priority")) {
+          priority = "high";
+        }
+        extractedTasks.push({
+          title: cleanedText.substring(0, 60) + (cleanedText.length > 60 ? "..." : ""),
+          description: `Action Item: ${cleanedText}`,
+          assignedTo: speakerName,
+          priority
+        });
+      }
+    }
+    // Extract Highlights
+    else if (extractedHighlights.length < 4 && (lowerS.includes("recommend") || lowerS.includes("concern") || lowerS.includes("milestone") || lowerS.includes("review") || lowerS.includes("status") || lowerS.includes("progress") || lowerS.includes("impact") || lowerS.includes("great") || lowerS.includes("perfect") || lowerS.includes("focus") || lowerS.includes("launch"))) {
+      extractedHighlights.push(cleanedText);
+    }
+  });
+
+  // Supplement standard agenda
+  let agenda = "Review team progress and synchronize core deliverables across workspace branches.";
   if (transcript.trim().length > 20) {
     const cleanLines = lines.map(l => l.replace(/^[^:]+:\s*/, "").trim()).filter(l => l.length > 15);
     if (cleanLines.length > 0) {
@@ -264,27 +337,38 @@ function generateHeuristicMOM(transcript: string, proposedTitle?: string): any {
     }
   }
 
-  return {
-    title: proposedTitle || "Synchronised Team Action Sync",
-    duration: "15 mins",
-    participants,
-    summary: {
-      agenda,
-      highlights: [
+  // Combine extracted results with keyword backups to guarantee beautiful layouts
+  const highlights = extractedHighlights.length > 0 
+    ? extractedHighlights 
+    : [
         ...selected.highlights,
         "Reviewed schedule milestones and finalized next step deliverables with core team consensus."
-      ],
-      decisions: [
+      ];
+
+  const decisions = extractedDecisions.length > 0
+    ? extractedDecisions
+    : [
         ...selected.decisions,
         {
           decision: "Establish a recurring weekly automated status review tracking check",
           who: "Joint Agreement",
           context: "Provides highly structured checkpoints for overall operations tracking"
         }
-      ]
+      ];
+
+  const tasksList = extractedTasks.length > 0 ? extractedTasks : selected.tasks;
+
+  return {
+    title: proposedTitle || "Synchronised Team Action Sync",
+    duration: "15 mins",
+    participants,
+    summary: {
+      agenda,
+      highlights,
+      decisions
     },
     tasks: [
-      ...selected.tasks.map((t, idx) => ({
+      ...tasksList.map((t, idx) => ({
         ...t,
         id: `task-fallback-${Date.now()}-${idx}`,
         dueDate: new Date(Date.now() + 86400000 * 3).toISOString().substring(0, 10),
@@ -306,7 +390,7 @@ function generateHeuristicMOM(transcript: string, proposedTitle?: string): any {
 // Audio Transcript service powered by gemini-3.5-flash
 app.post("/api/transcribe", async (req, res) => {
   try {
-    const { audio, mimeType, sampleId } = req.body;
+    const { audio, mimeType, sampleId, title } = req.body;
 
     // Fast-path for preseeded sample audio triggers
     if (sampleId) {
@@ -320,23 +404,31 @@ app.post("/api/transcribe", async (req, res) => {
       return res.status(400).json({ success: false, error: "Audio data (base64) or sampleId is required." });
     }
 
+    let cleanMimeType = mimeType || "audio/webm";
+    if (cleanMimeType.includes(";")) {
+      cleanMimeType = cleanMimeType.split(";")[0].trim();
+    }
+
     const ai = getGeminiClient();
 
-    // Prepare content parts for Gemini
-    const audioPart = {
-      inlineData: {
-        data: audio, // base64 string
-        mimeType: mimeType || "audio/webm",
-      },
-    };
-
-    const promptText = `Analyze and provide an accurate, high-fidelity verbatim transcription of this meeting audio recording. 
-Identify and distinguish different voices properly, labelling them (e.g., 'Speaker 1', 'Speaker 2', etc., or by name if they introduce themselves during the conversation). 
-Format clearly with line breaks and speaker designations.`;
-
+    // Prepare content parts for Gemini with exact formal schema compliance
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
-      contents: [audioPart, promptText],
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: audio, // base64 string
+              mimeType: cleanMimeType,
+            },
+          },
+          {
+            text: `Analyze and provide an accurate, high-fidelity verbatim transcription of this meeting audio recording. 
+Identify and distinguish different voices properly, labelling them (e.g., 'Speaker 1', 'Speaker 2', etc., or by name if they introduce themselves during the conversation). 
+Format clearly with line breaks and speaker designations.`
+          }
+        ]
+      }
     });
 
     const transcript = response.text || "Unable to transcribe meeting audio. Please check that you spoke clearly.";
@@ -346,6 +438,7 @@ Format clearly with line breaks and speaker designations.`;
       transcript,
     });
   } catch (error: any) {
+    console.error("TRANSCRIPTION ERROR IN SERVER:", error);
     console.log("Safe transcription fallback triggered: Gemini API at capacity or rate-limited. Activating heuristic transcription bypass.");
     
     // Check if error is related to rate-limit quotas on API key
@@ -357,16 +450,39 @@ Format clearly with line breaks and speaker designations.`;
     );
 
     console.log("Applying high-fidelity smart fallback transcript generator...");
-    const simulatedTranscript = `Moderator: Welcome team. Since the primary Gemini model is at capacity or rate-limited, we're operating this block using our fast-fail-soft local transcription engine. Let's align on next week's release features.
-Developer: I've packaged the core component modules and cleaned up the hover styles. No major issues there.
-Architect: Great work. Let's make sure we review the layout and contrast values again. I'll review and approve everything on Monday.
-Moderator: Sounds perfect. Let's document our current progress and wrap this up.`;
+    const topic = req.body.title || "our current project progress";
+    const localBackup = req.body.localBackupTranscript;
+    let simulatedTranscript = "";
+    
+    if (localBackup && localBackup.trim().length > 0) {
+      console.log("Speech-To-Text local backup transcript retrieved of length: " + localBackup.length);
+      simulatedTranscript = localBackup;
+    } else {
+      const lowerTopic = topic.toLowerCase();
+      if (lowerTopic.includes("environ") || lowerTopic.includes("climat") || lowerTopic.includes("eco") || lowerTopic.includes("green") || lowerTopic.includes("sustain") || lowerTopic.includes("conserv")) {
+        simulatedTranscript = `Moderator: Welcome everyone. Today we are conducting a strategic review on environmental sustainability and carbon metrics: "${topic}".
+Environmental Planner: Thanks. I've compiled our key metrics for eco impact and green initiatives. We are achieving positive carbon reduction indexes across branches.
+Conservation Lead: Excellent report. We should establish standard eco parameter checks for upcoming locations and audit compliance.
+Moderator: That makes perfect sense. Let's log these milestones and document our next actions to wrap up this environmental sync.`;
+      } else if (lowerTopic.includes("market") || lowerTopic.includes("camp") || lowerTopic.includes("sale") || lowerTopic.includes("ad")) {
+        simulatedTranscript = `Moderator: Welcome team. Let's synchronize on marketing ad campaigns and growth channels.
+Growth Specialist: We have mapped out responsive visual draft wireframes for social channels and optimized key conversion layouts.
+Product Owner: Excellent work. Let's establish a strict conversion target checkpoint and reallocate the search keyword budget.
+Moderator: Sounds perfect. Let's document these campaign decisions and conclude today's session.`;
+      } else {
+        simulatedTranscript = `Moderator: Welcome team. Today we are aligning on our primary checkpoint: "${topic}". Let's review status variables.
+Developer: I've packaged the core operational module assets and verified style tokens. The main deliverables are solid.
+Architect: Great work. Let's make sure we review the layout parameters and quality benchmarks on Monday.
+Moderator: Perfect. Let's write down these core decisions, assign action tasks, and finalize this alignment.`;
+      }
+    }
 
     res.json({
       success: true,
       transcript: simulatedTranscript,
       isFallback: true,
-      fallbackReason: isQuota ? "GEMINI_QUOTA_EXHAUSTED" : "GEMINI_API_ERROR"
+      fallbackReason: isQuota ? "GEMINI_QUOTA_EXHAUSTED" : "GEMINI_API_ERROR",
+      fallbackError: error.message || String(error)
     });
   }
 });
@@ -507,6 +623,7 @@ You must generate a structured JSON object strictly matching this schema:
     });
 
   } catch (error: any) {
+    console.error("SUMMARIZATION ERROR IN SERVER:", error);
     console.log("Safe summarization fallback triggered: Gemini API at capacity or rate-limited. Activating heuristic MOM engine.");
     const isQuota = error.message && (
       error.message.includes("429") || 
@@ -524,6 +641,7 @@ You must generate a structured JSON object strictly matching this schema:
       fallbackMeeting.transcript = transcript;
       fallbackMeeting.isFallback = true;
       fallbackMeeting.fallbackReason = isQuota ? "GEMINI_QUOTA_EXHAUSTED" : "GEMINI_API_ERROR";
+      fallbackMeeting.fallbackError = error.message || String(error);
 
       res.json({
         success: true,

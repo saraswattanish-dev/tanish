@@ -41,6 +41,7 @@ export interface Meeting {
   audioUrl?: string;
   isFallback?: boolean;
   fallbackReason?: string;
+  fallbackError?: string;
 }
 
 export interface CreateMeetingResponse {

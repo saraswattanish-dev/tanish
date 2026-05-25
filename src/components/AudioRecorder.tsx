@@ -42,6 +42,7 @@ export default function AudioRecorder({
   // Paste states
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteContent, setPasteContent] = useState('');
+  const [recordTitle, setRecordTitle] = useState('');
 
   // Status logs
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -52,6 +53,8 @@ export default function AudioRecorder({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
+  const speechRecognizerRef = useRef<any>(null);
+  const localTranscriptRef = useRef<string>('');
 
   // Handle timer
   useEffect(() => {
@@ -92,24 +95,77 @@ export default function AudioRecorder({
         });
 
         // Verify that the user actually ticked "Share tab audio"
-        const audioTracks = displayStream.getAudioTracks();
-        if (audioTracks.length === 0) {
+        const tabAudioTracks = displayStream.getAudioTracks();
+        if (tabAudioTracks.length === 0) {
           // Stop remaining video tracks representing shared tab/screen
           displayStream.getTracks().forEach(t => t.stop());
           throw new Error("No browser audio track shared. You MUST check the 'Share tab audio' checkbox before sharing display.");
         }
 
-        // We only record the audio track stream
-        stream = new MediaStream(audioTracks);
-        // Also keep a reference to stop video frames shared in background
-        activeStreamRef.current = displayStream;
+        setStatusMsg("Linking micro-synthesizer and audio loopback for dual-audio sync...");
+        
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioContextClass();
+        const dest = audioCtx.createMediaStreamDestination();
+
+        // Source 1: meeting/tab audio (e.g. Google Meet participants)
+        const tabStreamOnly = new MediaStream([tabAudioTracks[0]]);
+        const tabSource = audioCtx.createMediaStreamSource(tabStreamOnly);
+        tabSource.connect(dest);
+        
+        // CRITICAL FIX: also connect to physical speakers so the user can HEAR Google Meet audio while recording!
+        tabSource.connect(audioCtx.destination);
+
+        let micStream: MediaStream | null = null;
+        let micTracks: MediaStreamTrack[] = [];
+        try {
+          // Captures standard user mic to merge with Google Meet participant sound
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micTracks = micStream.getAudioTracks();
+        } catch (micErr) {
+          console.warn("Could not start local microphone stream overlay. Defaulting to tab sound parameters only.", micErr);
+        }
+
+        if (micStream && micTracks.length > 0) {
+          // Source 2: local user's microphone
+          const micSource = audioCtx.createMediaStreamSource(new MediaStream([micTracks[0]]));
+          micSource.connect(dest);
+          // Note: We DO NOT connect micSource to audioCtx.destination to prevent local feedback/echo howls!
+        }
+
+        stream = dest.stream;
+
+        // Track closure logic for stopping all source streams cleanly
+        const stopAllTracks = () => {
+          tabAudioTracks.forEach(t => t.stop());
+          micTracks.forEach(t => t.stop());
+          displayStream.getTracks().forEach(t => t.stop());
+          micStream?.getTracks().forEach(t => t.stop());
+          audioCtx.close().catch(() => {});
+        };
+
+        // Cache specific clean logic reference on stream structure
+        (stream as any)._audioCtxStop = stopAllTracks;
+        activeStreamRef.current = stream;
       } else {
         // Standard user microphone stream
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         activeStreamRef.current = stream;
       }
 
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      let options: MediaRecorderOptions = {};
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          options = { mimeType: 'audio/webm' };
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          options = { mimeType: 'audio/mp4' };
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          options = { mimeType: 'audio/ogg' };
+        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+          options = { mimeType: 'audio/wav' };
+        }
+      }
+      const recorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -126,14 +182,49 @@ export default function AudioRecorder({
         
         // Stop all track streams so permission indicators turn off
         if (activeStreamRef.current) {
-          activeStreamRef.current.getTracks().forEach((track) => track.stop());
+          if (typeof (activeStreamRef.current as any)._audioCtxStop === 'function') {
+            (activeStreamRef.current as any)._audioCtxStop();
+          } else {
+            activeStreamRef.current.getTracks().forEach((track) => track.stop());
+          }
         }
       };
+
+      // Initialize background speech recognition to capture direct speech metrics locally
+      localTranscriptRef.current = "";
+      const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechClass) {
+        try {
+          const rec = new SpeechClass();
+          rec.continuous = true;
+          rec.interimResults = false;
+          rec.lang = 'en-US';
+          rec.onresult = (e: any) => {
+            let block = "";
+            for (let i = e.resultIndex; i < e.results.length; ++i) {
+              if (e.results[i].isFinal) {
+                block += e.results[i][0].transcript + " ";
+              }
+            }
+            if (block) {
+              localTranscriptRef.current += block + "\n";
+              console.log("[Local Web Speech STT]:", block);
+            }
+          };
+          rec.onerror = (e: any) => {
+            console.warn("Speech STT error logic trigger:", e.error);
+          };
+          speechRecognizerRef.current = rec;
+          rec.start();
+        } catch (recErr) {
+          console.warn("Speech class failed to auto start:", recErr);
+        }
+      }
 
       recorder.start();
       setIsRecording(true);
       setRecordingSeconds(0);
-      setStatusMsg(recordMode === 'tab' ? "Recording Browser tab audio active... speak or play audio." : "Recording microphone active... speak naturally.");
+      setStatusMsg(recordMode === 'tab' ? "Recording dual loopback (Google Meet output + your mic) active... click Stop when done." : "Recording microphone active... speak naturally. A local STT stream listener is active.");
     } catch (err: any) {
       console.error(err);
       const isPolicyDisallowed = err.message && (
@@ -158,6 +249,13 @@ export default function AudioRecorder({
   // Stop recording
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      if (speechRecognizerRef.current) {
+        try {
+          speechRecognizerRef.current.stop();
+        } catch (e) {
+          console.error(e);
+        }
+      }
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setStatusMsg("Recording completed successfully. Click 'Analyze Meeting Input' below to process.");
@@ -247,11 +345,17 @@ export default function AudioRecorder({
 
         updateStatus("Transcribing vocal wave contents (Calling server-side Gemini)...", true);
         const base64Audio = await convertBlobToBase64(audioBlob);
+        const proposedTitle = recordTitle.trim() || (recordMode === 'tab' ? "System Tab Loopback Sync" : "Microphone Audio Recording");
         
         const response = await fetch('/api/transcribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audio: base64Audio, mimeType: 'audio/webm' })
+          body: JSON.stringify({ 
+            audio: base64Audio, 
+            mimeType: audioBlob.type || 'audio/webm',
+            title: proposedTitle,
+            localBackupTranscript: localTranscriptRef.current.trim()
+          })
         });
 
         const resData = await response.json();
@@ -262,7 +366,7 @@ export default function AudioRecorder({
         updateStatus("Analyzing transcript & writing Minutes of Meeting (MOM)...", true);
         await onProcessTranscript(
           resData.transcript, 
-          recordMode === 'tab' ? "System Tab Loopback Sync" : "Microphone Audio Recording"
+          proposedTitle
         );
         updateStatus("MOM structured perfectly!", false);
       }
@@ -405,12 +509,17 @@ export default function AudioRecorder({
             </button>
           </div>
 
-          <div className="text-center">
+          <div className="text-center max-w-sm">
             <p className="text-2xl font-mono font-bold text-white tracking-wide">{formatTime(recordingSeconds)}</p>
-            <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-bold">
+            <p className="text-[10px] text-slate-400 mt-1.5 uppercase tracking-widest font-bold">
               {isRecording 
-                ? (recordMode === 'tab' ? "Capturing active browser loopback..." : "Recording mic stream input...") 
-                : `Click to start ${recordMode === 'tab' ? 'Otter loopback' : 'microphone'} session`}
+                ? (recordMode === 'tab' ? "Dual Capture Active: Syncing Google Meet + Your Microphone" : "Recording microphone stream input...") 
+                : (recordMode === 'tab' ? "Ready to sync Google Meet audio & mic" : "Ready to record mic inputs")}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1 leading-normal">
+              {recordMode === 'tab' 
+                ? "Press Start, share your Google Meet tab and check 'Also share tab audio' to record both sides of the meeting simultaneously." 
+                : "Captures your local microphone input directly."}
             </p>
           </div>
 
@@ -431,14 +540,29 @@ export default function AudioRecorder({
             </div>
           )}
 
-          {/* Saved notification preview */}
+          {/* Saved notification preview + Title Input */}
           {audioUrl && !isRecording && (
-            <div className="w-full max-w-sm bg-white/[0.03] p-3 rounded-xl border border-white/5 flex items-center gap-3 justify-between">
-              <div className="flex items-center gap-2">
-                <Play className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-[10px] text-slate-400 font-semibold font-mono">Captured WAV blob</span>
+            <div className="w-full max-w-sm space-y-3.5">
+              <div className="bg-white/[0.03] p-3 rounded-xl border border-white/5 flex items-center gap-3 justify-between">
+                <div className="flex items-center gap-2">
+                  <Play className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span className="text-[10px] text-slate-400 font-semibold font-mono">Captured WAV blob</span>
+                </div>
+                <audio src={audioUrl} controls className="w-40 h-8 invert opacity-50" />
               </div>
-              <audio src={audioUrl} controls className="w-40 h-8 invert opacity-50" />
+              
+              <div className="space-y-1.5 text-left bg-white/[0.01] border border-white/5 p-3 rounded-xl">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  Custom Meeting Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Environmental Strategy Plan"
+                  value={recordTitle}
+                  onChange={(e) => setRecordTitle(e.target.value)}
+                  className="w-full px-3 py-2 bg-white/[0.02] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500/20 text-xs text-slate-100 placeholder-slate-600 font-sans"
+                />
+              </div>
             </div>
           )}
         </div>

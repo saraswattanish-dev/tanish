@@ -221,19 +221,41 @@ Administrator: Fantastic, let's complete our review on Thursday morning.`;
         </div>
 
         {/* Auth status toggle */}
-        <div>
+        <div className="flex items-center gap-2">
           {googleToken ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Google Account Connected</span>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Google Account Connected</span>
+              </div>
+              <button
+                onClick={() => {
+                  setGoogleToken(null);
+                  setStatusMsg("Session cached token cleared dynamically. You can now re-authenticate.");
+                }}
+                className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/10 rounded-xl text-[10px] font-bold transition cursor-pointer shrink-0"
+                title="Disconnect from current Google Workspace account to renew expiring token"
+              >
+                Disconnect & Renew
+              </button>
             </div>
           ) : (
             <button
               onClick={handleGoogleSignIn}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-900 font-bold rounded-xl text-xs hover:bg-slate-100 transition cursor-pointer"
+              disabled={isSignLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-900 font-bold rounded-xl text-xs hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
             >
-              <Globe className="w-4 h-4" />
-              <span>Link Google Workspace Account</span>
+              {isSignLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Linking...</span>
+                </>
+              ) : (
+                <>
+                  <Globe className="w-4 h-4" />
+                  <span>Link Google Workspace Account</span>
+                </>
+              )}
             </button>
           )}
         </div>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Sparkles, ArrowRight, Lock, Mail, User, ShieldCheck, AlertCircle } from 'lucide-react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, googleSignInWithScopes } from '../firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface AuthPagesProps {
   onAuthSuccess: (email: string, userName: string) => void;
@@ -51,6 +52,8 @@ export default function AuthPages({ onAuthSuccess, onBackToLanding }: AuthPagesP
         descriptiveMessage = "Password is too weak. Please use at least 6 characters.";
       } else if (err.code === 'auth/invalid-email') {
         descriptiveMessage = "Please enter a valid work email address.";
+      } else if (err.code === 'auth/operation-not-allowed' || (err.message && err.message.includes('operation-not-allowed'))) {
+        descriptiveMessage = "OPERATION_NOT_ALLOWED_ERROR";
       }
       setErrorMsg(descriptiveMessage);
     } finally {
@@ -73,7 +76,7 @@ export default function AuthPages({ onAuthSuccess, onBackToLanding }: AuthPagesP
       if (err.code === 'auth/unauthorized-domain' || (err.message && err.message.includes('unauthorized-domain'))) {
         setErrorMsg("UNAUTHORIZED_DOMAIN_ERROR");
       } else if (err.code === 'auth/popup-closed-by-user' || (err.message && err.message.includes('popup-closed-by-user'))) {
-        setErrorMsg("Google sign-in popup was closed before completion. Please click the button to try again and keep the login window open.");
+        setErrorMsg("POPUP_CLOSED_ERROR");
       } else {
         setErrorMsg(err.message || "Could not connect to Google accounts. Let's try standard credentials.");
       }
@@ -184,7 +187,7 @@ export default function AuthPages({ onAuthSuccess, onBackToLanding }: AuthPagesP
                   <AlertCircle className="w-4.5 h-4.5 shrink-0 mt-0.5 text-amber-400" />
                   <div>
                     <strong className="text-white block font-sans font-bold">Authorized Domain Required</strong>
-                    <span>Firebase blocks operations because this web app's preview domain hasn't been whitelisted in your console.</span>
+                    <span>Firebase blocks OAuth because this custom or production domain hasn't been added to your authorized domains.</span>
                   </div>
                 </div>
                 <div className="bg-black/30 p-2.5 rounded-lg border border-white/5 space-y-1">
@@ -207,9 +210,104 @@ export default function AuthPages({ onAuthSuccess, onBackToLanding }: AuthPagesP
                   <p className="font-bold text-white uppercase text-[9px] tracking-widest text-[#EAB308]">How to fix in Firebase Console:</p>
                   <ol className="list-decimal pl-4 space-y-1 text-slate-300">
                     <li>Go to the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline font-bold">Firebase Console</a></li>
-                    <li>Select project: <code className="bg-white/5 text-slate-300 px-1.5 py-0.5 rounded leading-none text-[10px]">ai-meeting-assistant-40d25</code></li>
+                    <li>Select project: <code className="bg-white/5 text-indigo-300 px-1.5 py-0.5 rounded leading-none text-[10px] font-mono">{firebaseConfig.projectId}</code></li>
                     <li>Navigate to: <strong>Authentication</strong> &rarr; <strong>Settings</strong> &rarr; <strong>Authorized domains</strong></li>
-                    <li>Click <strong>Add domain</strong> and paste the copied address</li>
+                    <li>Click <strong>Add domain</strong> and paste the copied address (<code className="text-indigo-300 text-[10px] font-mono">{window.location.hostname}</code>)</li>
+                  </ol>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setErrorMsg(null)}
+                  className="w-full text-center text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider block pt-1 bg-transparent border-0 cursor-pointer"
+                >
+                  Dismiss &amp; Try Again
+                </button>
+              </div>
+            ) : errorMsg === "POPUP_CLOSED_ERROR" ? (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-3 text-amber-200 text-xs leading-relaxed animate-in fade-in duration-200 animate-duration-300">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4.5 h-4.5 shrink-0 mt-0.5 text-amber-400" />
+                  <div>
+                    <strong className="text-white block font-sans font-bold text-xs">Popup Closed or Domain Rejected</strong>
+                    <span className="text-[11px] text-slate-300">The sign-in popup closed before completion. If this happened immediately without showing standard account selection, it means this production domain must be authorized in your Firebase console.</span>
+                  </div>
+                </div>
+
+                <div className="bg-black/30 p-2 text-[11px] text-slate-300 rounded-lg border border-white/5 space-y-1.5">
+                  <p className="font-bold text-white uppercase text-[9px] tracking-widest text-[#EAB308]">How to fix in Firebase Console:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-300 text-[10.5px]">
+                    <li>Open <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline font-semibold hover:text-indigo-300">Firebase Console</a></li>
+                    <li>Select: <code className="bg-white/5 text-indigo-300 px-1 py-0.5 rounded text-[10px] font-mono">{firebaseConfig.projectId}</code></li>
+                    <li>Go to: <strong>Authentication</strong> &rarr; <strong>Settings</strong> &rarr; <strong>Authorized domains</strong></li>
+                    <li>Click <strong>Add domain</strong> and paste:</li>
+                  </ol>
+                  <div className="flex items-center justify-between gap-1.5 mt-2 bg-black/40 p-1.5 rounded border border-white/5">
+                    <code className="text-indigo-300 font-mono text-[9.5px] select-all break-all">{window.location.hostname}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(window.location.hostname);
+                        alert("Domain " + window.location.hostname + " copied to clipboard!");
+                      }}
+                      className="text-[9px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-1.5 py-0.5 rounded transition whitespace-nowrap cursor-pointer select-none"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-slate-400 border-t border-white/5 pt-2 space-y-1.5 leading-normal">
+                  <p className="text-white font-semibold flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>To avoid popups altogether:</span>
+                  </p>
+                  <p className="text-slate-300">
+                    Use our standard <strong>Email &amp; Password</strong> fields above! It avoids browser popups completely and registers instantly.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg(null);
+                    }}
+                    className="w-full mt-1.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/20 text-indigo-300 font-bold rounded-lg text-[10px] uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Use Standard Email &amp; Password fields
+                  </button>
+                </div>
+
+                <div className="text-[10px] text-slate-400 border-t border-white/5 pt-2 space-y-0.5 leading-normal">
+                  <p className="text-white font-semibold">Other reasons:</p>
+                  <ul className="list-disc pl-3.5 space-y-0.5">
+                    <li>An adblocker or popup-blocker might have terminated the window automatically.</li>
+                    <li>You or the browser may have closed the pop-up before the token authorization finished.</li>
+                  </ul>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setErrorMsg(null)}
+                  className="w-full text-center text-[10px] text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider block pt-1 bg-transparent border-0 cursor-pointer"
+                >
+                  Dismiss &amp; Try Again
+                </button>
+              </div>
+            ) : errorMsg === "OPERATION_NOT_ALLOWED_ERROR" ? (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-3 text-amber-200 text-xs leading-relaxed animate-in fade-in duration-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4.5 h-4.5 shrink-0 mt-0.5 text-amber-400" />
+                  <div>
+                    <strong className="text-white block font-sans font-bold">Email/Password Provider Disabled</strong>
+                    <span>Firebase Authentication blocks email registrations because the standard Email/Password sign-in method hasn't been enabled in your Firebase project.</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 font-medium text-slate-300 text-[11px]">
+                  <p className="font-bold text-white uppercase text-[9px] tracking-widest text-[#EAB308]">How to enable in Firebase Console:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-300">
+                    <li>Go to the <a href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/providers`} target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline font-bold">Firebase Authentication Console</a></li>
+                    <li>Make sure you are on project: <code className="bg-white/5 text-indigo-300 px-1.5 py-0.5 rounded leading-none text-[10px] font-mono">{firebaseConfig.projectId}</code></li>
+                    <li>Click on the <strong>Sign-in method</strong> tab (or click <strong>Get started</strong> if setting up for the first time)</li>
+                    <li>Click <strong>Add new provider</strong> and choose <strong>Email/Password</strong></li>
+                    <li>Toggle "Enable" to on, and click <strong>Save</strong>.</li>
                   </ol>
                 </div>
                 <button
@@ -223,7 +321,19 @@ export default function AuthPages({ onAuthSuccess, onBackToLanding }: AuthPagesP
             ) : errorMsg && (
               <div className="p-3 bg-rose-500/10 border border-rose-500/15 rounded-xl flex gap-1.5 text-rose-400 text-[11px] font-medium leading-relaxed">
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMsg}</span>
+                <div className="space-y-1.5">
+                  <span>{errorMsg}</span>
+                  {(errorMsg.includes("operation-not-allowed") || errorMsg.includes("disabled")) && (
+                    <p className="text-[10px] text-rose-300 mt-1 leading-relaxed">
+                      Tip: Ensure you have enabled the <strong>Email/Password</strong> provider in your <a href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/providers`} target="_blank" rel="noopener noreferrer" className="underline font-bold text-indigo-300">Firebase Console (project: {firebaseConfig.projectId})</a>.
+                    </p>
+                  )}
+                  {errorMsg.includes("unauthorized-domain") && (
+                    <p className="text-[10px] text-rose-300 mt-1 leading-relaxed">
+                      Tip: You must add <code className="bg-white/5 px-1 py-0.5 rounded font-mono text-[9px]">{window.location.hostname}</code> to <strong>Authorized Domains</strong> in your <a href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`} target="_blank" rel="noopener noreferrer" className="underline font-bold text-indigo-300">Firebase Console (Settings tab)</a>.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

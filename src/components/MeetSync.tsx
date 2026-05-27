@@ -77,7 +77,7 @@ export default function MeetSync({ onGenerateLocalMeeting }: MeetSyncProps) {
     } catch (err: any) {
       console.error("Google Auth error:", err);
       if (err.code === 'auth/popup-closed-by-user' || (err.message && err.message.includes('popup-closed-by-user'))) {
-        setErrorMsg("Google sign-in popup was closed before completion. Please try linking your Google Workspace account again and let the connection finish in the pop-up window!");
+        setErrorMsg("The Google authentication popup was closed or blocked. To fix: 1) Permit pop-ups in your browser toolbar, and 2) Check if this custom domain needs whitelisting in your Firebase console. Alternative: You can click 'Supplement manual OAuth Developer token' below, or simply hit 'Create Live Google Meet Space' without connecting an account to instant-generate a safe Sandbox space link!");
       } else {
         setErrorMsg(err.message || "Failed to complete Google Workspace sign-in.");
       }
